@@ -1,7 +1,9 @@
 import io
+import zipfile
 
 import openpyxl
 import streamlit as st
+from openpyxl.worksheet.datavalidation import DataValidation
 
 
 st.set_page_config(page_title="Tach luong ra 5 file", layout="wide")
@@ -164,11 +166,42 @@ def fill_payment_sheet(ws_payment, ws_ck, data_rows, source_account, code_to_nam
     return written_rows
 
 
+def apply_branch_dropdown(ws_payment, ws_bank_values):
+    last_row = 2
+    for r in range(2, ws_bank_values.max_row + 1):
+        if normalize_text(ws_bank_values.cell(r, 2).value):
+            last_row = r
+
+    formula = f"='{BANK_SHEET}'!$B$2:$B${last_row}"
+    dv = DataValidation(
+        type="list",
+        formula1=formula,
+        allow_blank=True,
+        showDropDown=False,
+    )
+    dv.promptTitle = "Chon ten chi nhanh"
+    dv.prompt = "Chon gia tri tu danh sach."
+    dv.errorTitle = "Gia tri khong hop le"
+    dv.error = "Ten chi nhanh phai nam trong danh sach sheet Chi nhanh ngan hang huong."
+
+    ws_payment.add_data_validation(dv)
+    dv.add(f"E2:E{ws_payment.max_row}")
+
+
 def wb_to_bytes(wb):
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
     return buf.getvalue()
+
+
+def build_zip_bytes(files):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for file_name, file_bytes in files:
+            zf.writestr(file_name, file_bytes)
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
 
 
 def load_template_pair(template_stream_or_path):
@@ -256,6 +289,7 @@ if st.button("Tach du lieu", type="primary"):
             code_to_name=code_to_name,
             alias_to_name=alias_to_name,
         )
+        apply_branch_dropdown(ws_payment, ws_bank)
 
         out_name = f"{idx + 1}_UPDATED.xlsx"
         output_files.append((out_name, wb_to_bytes(out_wb)))
@@ -263,6 +297,14 @@ if st.button("Tach du lieu", type="primary"):
 
     st.success("Da tach va cap nhat xong 5 file.")
     st.write(results)
+
+    zip_bytes = build_zip_bytes(output_files)
+    st.download_button(
+        label="Tai file ZIP (gom 5 file)",
+        data=zip_bytes,
+        file_name="LUONG_SPLIT_FILES.zip",
+        mime="application/zip",
+    )
 
     for fname, fbytes in output_files:
         st.download_button(
