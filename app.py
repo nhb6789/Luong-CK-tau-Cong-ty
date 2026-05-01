@@ -7,12 +7,14 @@ import streamlit as st
 from openpyxl.worksheet.datavalidation import DataValidation
 
 
-st.set_page_config(page_title="Tach luong ra 5 file", layout="wide")
-st.title("Tach du lieu LUONGSOURCE thanh 1.xlsx - 5.xlsx")
+st.set_page_config(page_title="Tach luong theo tung tau", layout="wide")
+st.title("Tach du lieu LUONGSOURCE dong theo so luong tau")
 
 
 SOURCE_DEFAULT = "LUONGSOURCE.xlsx"
-TEMPLATE_DEFAULTS = ["1.xlsx", "2.xlsx", "3.xlsx", "4.xlsx", "5.xlsx"]
+TEMPLATE_DEFAULT = "template.xlsx" # File nay phai nam cung thu muc voi app.py
+
+# Danh sach ten file mac dinh cho cac tau da biet
 OUTPUT_FILE_NAMES = [
     "1CK LUONG TAU INLACO BRIGHT (NGOAI HE THONG).xlsx",
     "2CK LUONG TAU HARMONY (NGOAI HE THONG).xlsx",
@@ -53,13 +55,11 @@ def build_bank_maps(ws_bank):
     alias_to_name = {}
 
     for r in range(2, ws_bank.max_row + 1):
-        # Mapping tu cot L -> M (du lieu da tinh toan khi doc data_only=True)
         short_code = normalize_text(ws_bank.cell(r, 12).value)
         full_name_from_code = normalize_text(ws_bank.cell(r, 13).value)
         if short_code and full_name_from_code and full_name_from_code != "#N/A":
             code_to_name[short_code.upper()] = full_name_from_code
 
-        # Mapping tu cot J -> B (key 6 ky tu -> ten chi nhanh)
         alias_key = normalize_text(ws_bank.cell(r, 10).value)
         branch_name = normalize_text(ws_bank.cell(r, 2).value)
         if alias_key and branch_name:
@@ -72,6 +72,7 @@ def parse_sections_from_ck(ws_ck):
     header_rows = []
     for r in range(1, ws_ck.max_row + 1):
         value = ws_ck.cell(r, 1).value
+        # Tim cac dong co chu STT (khong phan biet hoa thuong)
         if isinstance(value, str) and normalize_text(value).upper() == "STT":
             header_rows.append(r)
 
@@ -85,7 +86,6 @@ def parse_sections_from_ck(ws_ck):
             if stt_value is None:
                 r += 1
                 continue
-            # Du lieu hop le la dong co STT dang so
             if isinstance(stt_value, (int, float)) or (isinstance(stt_value, str) and stt_value.strip().isdigit()):
                 data_rows.append(r)
             r += 1
@@ -105,7 +105,6 @@ def to_account_string(value):
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        # Tai khoan ngan hang khong can phan thap phan
         if value.is_integer():
             return str(int(value))
     return str(value).strip()
@@ -120,12 +119,10 @@ def resolve_bank_name(bank_text, code_hint, code_to_name, alias_to_name):
     if not bank_text_norm:
         return ""
 
-    # Thu map theo 6 ky tu dau (giong cot J cua bang ma ngan hang)
     alias_key = bank_text_norm.upper()[:6]
     if alias_key in alias_to_name:
         return alias_to_name[alias_key]
 
-    # Fallback theo tu khoa pho bien de format giong file mau
     bank_upper = bank_text_norm.upper()
     fallback_rules = [
         ("VIETCOM", "VIETCOMBANK VIET NAM"),
@@ -141,7 +138,6 @@ def resolve_bank_name(bank_text, code_hint, code_to_name, alias_to_name):
         if keyword in bank_upper:
             return bank_name
 
-    # Neu van khong map duoc thi lay phan truoc dau phay
     return bank_text_norm.split(",")[0].strip().upper()
 
 
@@ -164,7 +160,6 @@ def fill_payment_sheet(ws_payment, ws_ck, data_rows, source_account, code_to_nam
         bank_code_hint = ws_ck.cell(src_row, 10).value
         resolved_bank = resolve_bank_name(bank_text, bank_code_hint, code_to_name, alias_to_name)
 
-        # Bo qua giao dich noi bo MSB de dung mau "ngoai he thong"
         resolved_bank_upper = normalize_text(resolved_bank).upper()
         if not resolved_bank_upper or resolved_bank_upper == "#N/A" or "MSB" in resolved_bank_upper:
             continue
@@ -231,18 +226,22 @@ def load_template_pair(template_stream_or_path):
     return wb_write, wb_values
 
 
+# --- GIAO DIEN STREAMLIT ---
 st.markdown(
-    "Upload file nguon `LUONGSOURCE.xlsx` (hoac de trong de dung file mac dinh canh app.py). "
-    "App tu dong lay mau `1.xlsx` … `5.xlsx` dat cung thu muc voi `app.py`."
+    "Upload file nguồn `LUONGSOURCE.xlsx` (hoặc để trống để dùng file mặc định). "
+    "App sẽ tự động sử dụng file `template.xlsx` nằm cùng thư mục."
 )
 
+# Chi giu lai muc upload file nguon
 source_file = st.file_uploader(
-    "File nguon LUONGSOURCE",
+    "File nguồn (LUONGSOURCE)",
     type=["xlsx"],
-    help=f"Neu bo trong se dung file mac dinh canh app.py: {resolve_default_xlsx(SOURCE_DEFAULT)}",
+    help=f"Mặc định: {resolve_default_xlsx(SOURCE_DEFAULT)}",
 )
+
 
 if st.button("Tach du lieu", type="primary"):
+    # 1. Doc file nguon
     try:
         source_arg = source_file if source_file else resolve_default_xlsx(SOURCE_DEFAULT)
         source_wb = openpyxl.load_workbook(source_arg, data_only=True)
@@ -255,28 +254,41 @@ if st.button("Tach du lieu", type="primary"):
         st.stop()
 
     ws_ck = source_wb[SOURCE_MAIN_SHEET]
+    
+    # Kiem tra so luong nhom du lieu (sections) dua vao STT
     sections = parse_sections_from_ck(ws_ck)
+    num_sections = len(sections)
 
-    if len(sections) < 5:
-        st.error(f"Chi tim thay {len(sections)} nhom du lieu trong sheet CK, can it nhat 5.")
+    if num_sections == 0:
+        st.error("Khong tim thay dong nao chua chu 'STT' trong sheet CK.")
         st.stop()
 
+    st.info(f"🔍 Da tim thay **{num_sections}** nhom du lieu trong file nguon.")
+
     source_account = get_source_account_from_ck(ws_ck)
+    
+    # 2. Tu dong doc template.xlsx tu local
+    try:
+        template_path = resolve_default_xlsx(TEMPLATE_DEFAULT)
+        with open(template_path, "rb") as f:
+            template_bytes = f.read()
+    except Exception as err:
+        st.error(f"Khong tim thay hoac khong the doc file mau '{TEMPLATE_DEFAULT}' tai local: {err}")
+        st.stop()
+
     results = []
     output_files = []
 
-    for idx in range(5):
-        template_name = TEMPLATE_DEFAULTS[idx]
-        template_path = resolve_default_xlsx(template_name)
-
+    # 3. Lap dong dua tren so luong sections thuc te tim duoc
+    for idx in range(num_sections):
         try:
-            out_wb, map_wb = load_template_pair(template_path)
+            out_wb, map_wb = load_template_pair(io.BytesIO(template_bytes))
         except Exception as err:
-            st.error(f"Khong mo duoc template {template_name} — da thu: {template_path} — {err}")
+            st.error(f"Loi khi khoi tao template cho nhom {idx + 1}: {err}")
             st.stop()
 
         if PAYMENT_SHEET not in out_wb.sheetnames or BANK_SHEET not in out_wb.sheetnames:
-            st.error(f"Template {template_name} phai co 2 sheet: '{PAYMENT_SHEET}' va '{BANK_SHEET}'.")
+            st.error(f"Template phai co 2 sheet: '{PAYMENT_SHEET}' va '{BANK_SHEET}'.")
             st.stop()
 
         ws_payment = out_wb[PAYMENT_SHEET]
@@ -293,16 +305,22 @@ if st.button("Tach du lieu", type="primary"):
         )
         apply_branch_dropdown(ws_payment, ws_bank)
 
-        out_name = OUTPUT_FILE_NAMES[idx]
+        # Dat ten file linh hoat
+        if idx < len(OUTPUT_FILE_NAMES):
+            out_name = OUTPUT_FILE_NAMES[idx]
+        else:
+            # Neu so luong tau > 5, tu dong tao ten file moi
+            out_name = f"{idx + 1}CK LUONG TAU KHAC (NGOAI HE THONG).xlsx"
+            
         output_files.append((out_name, wb_to_bytes(out_wb)))
-        results.append({"file": out_name, "rows_filled": filled_rows})
+        results.append({"Nhom": idx + 1, "Ten file": out_name, "So dong da dien": filled_rows})
 
-    st.success("Da tach va cap nhat xong 5 file.")
-    st.write(results)
+    st.success(f"Da tach va cap nhat xong {num_sections} file.")
+    st.table(results)
 
     zip_bytes = build_zip_bytes(output_files)
     st.download_button(
-        label="Tai file ZIP (gom 5 file)",
+        label=f"Tai file ZIP (gom {num_sections} file)",
         data=zip_bytes,
         file_name="LUONG_SPLIT_FILES.zip",
         mime="application/zip",
