@@ -1,5 +1,6 @@
 import io
 import zipfile
+from pathlib import Path
 
 import openpyxl
 import streamlit as st
@@ -12,9 +13,23 @@ st.title("Tach du lieu LUONGSOURCE thanh 1.xlsx - 5.xlsx")
 
 SOURCE_DEFAULT = "LUONGSOURCE.xlsx"
 TEMPLATE_DEFAULTS = ["1.xlsx", "2.xlsx", "3.xlsx", "4.xlsx", "5.xlsx"]
+OUTPUT_FILE_NAMES = [
+    "1CK LUONG TAU INLACO BRIGHT (NGOAI HE THONG).xlsx",
+    "2CK LUONG TAU HARMONY (NGOAI HE THONG).xlsx",
+    "3CK LUONG TAU EXPRESS (NGOAI HE THONG).xlsx",
+    "4CK LUONG TAU THANH THUY (NGOAI HE THONG).xlsx",
+    "5CK LUONG TAU AQUAMARINE (NGOAI HE THONG).xlsx",
+]
 PAYMENT_SHEET = "Thanh toan luong ngoai he thong"
 BANK_SHEET = "Chi nhanh ngan hang huong"
 SOURCE_MAIN_SHEET = "CK"
+
+APP_DIR = Path(__file__).resolve().parent
+
+
+def resolve_default_xlsx(relative_name: str) -> str:
+    """Duong dan tuyet doi toi file .xlsx dat cung thu muc voi app.py."""
+    return str(APP_DIR / relative_name)
 
 
 def normalize_text(value):
@@ -217,32 +232,20 @@ def load_template_pair(template_stream_or_path):
 
 
 st.markdown(
-    "Upload file nguon dang `LUONGSOURCE.xlsx`, app se tach du lieu thanh 5 file theo mau `1.xlsx` den `5.xlsx`."
+    "Upload file nguon `LUONGSOURCE.xlsx` (hoac de trong de dung file mac dinh canh app.py). "
+    "App tu dong lay mau `1.xlsx` … `5.xlsx` dat cung thu muc voi `app.py`."
 )
 
 source_file = st.file_uploader(
     "File nguon LUONGSOURCE",
     type=["xlsx"],
-    help=f"Neu bo trong se dung file mac dinh: {SOURCE_DEFAULT}",
+    help=f"Neu bo trong se dung file mac dinh canh app.py: {resolve_default_xlsx(SOURCE_DEFAULT)}",
 )
-
-st.subheader("Mau 5 file dich")
-tpl_cols = st.columns(5)
-template_uploads = []
-for i in range(5):
-    with tpl_cols[i]:
-        template_uploads.append(
-            st.file_uploader(
-                f"Mau {i + 1}.xlsx",
-                type=["xlsx"],
-                key=f"template_{i+1}",
-                help=f"Mac dinh: {TEMPLATE_DEFAULTS[i]}",
-            )
-        )
 
 if st.button("Tach du lieu", type="primary"):
     try:
-        source_wb = openpyxl.load_workbook(source_file if source_file else SOURCE_DEFAULT, data_only=True)
+        source_arg = source_file if source_file else resolve_default_xlsx(SOURCE_DEFAULT)
+        source_wb = openpyxl.load_workbook(source_arg, data_only=True)
     except Exception as err:
         st.error(f"Khong mo duoc file nguon: {err}")
         st.stop()
@@ -264,13 +267,12 @@ if st.button("Tach du lieu", type="primary"):
 
     for idx in range(5):
         template_name = TEMPLATE_DEFAULTS[idx]
-        upload_obj = template_uploads[idx]
-        template_stream = upload_obj if upload_obj else template_name
+        template_path = resolve_default_xlsx(template_name)
 
         try:
-            out_wb, map_wb = load_template_pair(template_stream)
+            out_wb, map_wb = load_template_pair(template_path)
         except Exception as err:
-            st.error(f"Khong mo duoc template {template_name}: {err}")
+            st.error(f"Khong mo duoc template {template_name} — da thu: {template_path} — {err}")
             st.stop()
 
         if PAYMENT_SHEET not in out_wb.sheetnames or BANK_SHEET not in out_wb.sheetnames:
@@ -291,7 +293,7 @@ if st.button("Tach du lieu", type="primary"):
         )
         apply_branch_dropdown(ws_payment, ws_bank)
 
-        out_name = f"{idx + 1}_UPDATED.xlsx"
+        out_name = OUTPUT_FILE_NAMES[idx]
         output_files.append((out_name, wb_to_bytes(out_wb)))
         results.append({"file": out_name, "rows_filled": filled_rows})
 
